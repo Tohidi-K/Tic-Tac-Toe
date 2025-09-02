@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
 
 public class GameManager : MonoBehaviour
 {
@@ -22,12 +24,14 @@ public class GameManager : MonoBehaviour
     public GameObject gameTitle;
     public GameObject border;
     public GameObject spinner;
+
     public TextMeshProUGUI player1Name;
     public TextMeshProUGUI player2Name;
 
     public TMP_InputField inputField;
 
     private float spinTime = 5.0f;
+    private bool  isHost;
 
     private async void Start()
     {
@@ -40,6 +44,7 @@ public class GameManager : MonoBehaviour
         inputField.onValueChanged.AddListener(SavePlayerName);
 
         NakamaConnection.Socket.ReceivedMatchmakerMatched += m => mainThread.Enqueue(() => OnReceivedMatchmakerMatched(m));
+        NakamaConnection.Socket.ReceivedMatchState += m => mainThread.Enqueue(() => OnReceivedMatchState(m));
 
         gameData.playerShape = 0;
         gameData.playerTurn = true;
@@ -48,6 +53,7 @@ public class GameManager : MonoBehaviour
     private async void OnReceivedMatchmakerMatched(IMatchmakerMatched matchmakingTicket)
     {
         var match = await NakamaConnection.Socket.JoinMatchAsync(matchmakingTicket);
+        NakamaConnection.matchId = match.Id;
 
         Debug.Log("Our session ID : " + match.Self.SessionId);
 
@@ -56,7 +62,49 @@ public class GameManager : MonoBehaviour
             Debug.Log("Connected User session ID : " + user.SessionId);
         }
 
+        DecideHost(match);
+
+        await SendName(player1Name.text);
         ActivateTurnmaking();
+    }
+
+    private void DecideHost(IMatch match)
+    {
+        string myId = match.Self.SessionId;
+        string lowestId = myId;
+
+        foreach (var user in match.Presences)
+        {
+            if (string.Compare(user.SessionId, lowestId, StringComparison.Ordinal) < 0)
+            {
+                lowestId = user.SessionId;
+            }
+        }
+
+        isHost = (myId == lowestId);
+        Debug.Log(isHost ? "I am the host!" : "I am a client!");
+    }
+
+    private async Task SendName(string player1Name)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(player1Name);
+        await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 1, bytes, null);
+    }
+
+    private void OnReceivedMatchState(IMatchState matchState)
+    {
+        switch (matchState.OpCode)
+        {
+            case 1:
+                player2Name.text = System.Text.Encoding.UTF8.GetString(matchState.State);
+                break;
+
+            case 2:
+                float finalAngle = BitConverter.ToSingle(matchState.State, 0);
+                StartSpin(finalAngle);
+                Debug.Log(finalAngle);
+                break;
+        }
     }
 
     public void SavePlayerName(string input)
@@ -64,25 +112,31 @@ public class GameManager : MonoBehaviour
         player1Name.text = input;
     }
 
-    public void ActivateTurnmaking()
+    public async void ActivateTurnmaking()
     {
-        try
-        {
-            gameTitle.SetActive(false);
-            matchmakingPanel.SetActive(false);
+        gameTitle.SetActive(false);
+        matchmakingPanel.SetActive(false);
 
-            border.SetActive(true);
-            spinner.SetActive(true);
+        border.SetActive(true);
+        spinner.SetActive(true);
 
-            DisplayNames();
-            StartSpin();
+        DisplayNames();
+
+        if (isHost)
+            {
+            float possibleAngles = UnityEngine.Random.Range(0f, 360f);
+            int extraSpins = UnityEngine.Random.Range(3, 6);
+            float finalAngle = possibleAngles + extraSpins * 360f;
+
+            Debug.Log("a number has been generated which is : " + finalAngle);
+            Debug.Log(finalAngle);
+
+            var bytes = BitConverter.GetBytes(finalAngle);
+            await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 2, bytes, null);
+
+            //StartSpin(finalAngle);
         }
-
-        catch (Exception e)
-        {
-            Debug.LogError("Error in ActivateTurnmaking: " + e);
-        }
-    }
+    } 
 
     public void DisplayNames()
     {
@@ -110,19 +164,14 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    private void StartSpin()
+    private void StartSpin(float finalAngle)
     {
-        StartCoroutine(SpinRoutine());
+        StartCoroutine(SpinRoutine(finalAngle));
     }
 
-    private IEnumerator SpinRoutine()
+    private IEnumerator SpinRoutine(float finalAngle)
     {
         float elapsed = 0f;
-
-        float possibleAngles = UnityEngine.Random.Range(0f, 360f);
-        int extraSpins = UnityEngine.Random.Range(3, 6);
-        float finalAngle = possibleAngles + extraSpins * 360f;
-
         float startAngle = arrowHolder.eulerAngles.z;
 
         while (elapsed < spinTime)

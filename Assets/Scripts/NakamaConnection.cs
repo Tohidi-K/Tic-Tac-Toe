@@ -10,7 +10,9 @@ public class NakamaConnection : MonoBehaviour
     private string   Scheme    = "http";
     private string   Host      = "localhost";
     private string   ServerKey = "defaultkey";
+
     private string   ticket;
+    public  string   matchId;
 
     private int      Port      = 7350;
 
