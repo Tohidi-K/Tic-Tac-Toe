@@ -7,6 +7,9 @@ using UnityEngine;
 using UnityEngine.UI;
 using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
+using UnityEngine.XR;
+using static UnityEngine.Rendering.DebugUI;
+using Unity.VisualScripting;
 
 public class GameManager : MonoBehaviour
 {
@@ -24,14 +27,21 @@ public class GameManager : MonoBehaviour
     public GameObject gameTitle;
     public GameObject border;
     public GameObject spinner;
+    public GameObject gameBoard;
 
     public TextMeshProUGUI player1Name;
     public TextMeshProUGUI player2Name;
+    public TextMeshProUGUI turnText;
+    public TextMeshProUGUI winnerText;
 
     public TMP_InputField inputField;
 
     private float spinTime = 5.0f;
+    private float clientFinalAngle;
+    private float HostFinalAngle;
     private bool  isHost;
+    private bool gameIsFinished = false;
+    private int turnsPlayed = 0;
 
     private async void Start()
     {
@@ -91,18 +101,49 @@ public class GameManager : MonoBehaviour
         await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 1, bytes, null);
     }
 
+    private void TurnAnnouncer()
+    {
+        turnText.gameObject.SetActive(true);
+    }
+
     private void OnReceivedMatchState(IMatchState matchState)
     {
         switch (matchState.OpCode)
         {
             case 1:
+
                 player2Name.text = System.Text.Encoding.UTF8.GetString(matchState.State);
                 break;
 
             case 2:
-                float finalAngle = BitConverter.ToSingle(matchState.State, 0);
-                StartSpin(finalAngle);
-                Debug.Log(finalAngle);
+
+                clientFinalAngle = BitConverter.ToSingle(matchState.State, 0);
+                StartSpin(clientFinalAngle);
+                Debug.Log(clientFinalAngle);
+                break;
+
+            case 3:
+
+                int receivedIndex = BitConverter.ToInt32(matchState.State, 0);
+                Debug.Log("Received inex : " + receivedIndex);
+
+                if (gameData.playerShape == 1)
+                {
+                    gameData.gridState[receivedIndex] = 0;
+                    circles[receivedIndex].gameObject.SetActive(true);
+
+                    gameData.playerTurn = true;
+                    TurnAnnouncer();
+                }
+                else if (gameData.playerShape == 0)
+                {
+                    gameData.gridState[receivedIndex] = 1;
+                    crosses[receivedIndex].gameObject.SetActive(true);
+
+                    gameData.playerTurn = true;
+                    TurnAnnouncer();
+                }
+                AnnounceWinner();
                 break;
         }
     }
@@ -123,18 +164,19 @@ public class GameManager : MonoBehaviour
         DisplayNames();
 
         if (isHost)
-            {
+        {
             float possibleAngles = UnityEngine.Random.Range(0f, 360f);
             int extraSpins = UnityEngine.Random.Range(3, 6);
-            float finalAngle = possibleAngles + extraSpins * 360f;
+            clientFinalAngle = possibleAngles + extraSpins * 360f;
 
-            Debug.Log("a number has been generated which is : " + finalAngle);
-            Debug.Log(finalAngle);
+            Debug.Log("client number has been generated which is : " + clientFinalAngle);
+            Debug.Log(clientFinalAngle);
 
-            var bytes = BitConverter.GetBytes(finalAngle);
+            var bytes = BitConverter.GetBytes(clientFinalAngle);
             await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 2, bytes, null);
 
-            //StartSpin(finalAngle);
+            HostFinalAngle = clientFinalAngle + 180;
+            StartSpin(HostFinalAngle);
         }
     } 
 
@@ -144,29 +186,99 @@ public class GameManager : MonoBehaviour
         player2Name.gameObject.SetActive(true);    
     }
 
-    public void MakeMove(int index)
+    private void AnnounceWinner()
     {
-        if (gameData.playerTurn)
+        if (turnsPlayed == 8)
+        {
+            gameIsFinished = true;
+            Debug.Log("game is finished!");
+
+            turnText.gameObject.SetActive(false);
+        }
+        if (
+               (gameData.gridState[0] == 0 && gameData.gridState[1] == 0 && gameData.gridState[2] == 0) ||
+               (gameData.gridState[3] == 0 && gameData.gridState[4] == 0 && gameData.gridState[5] == 0) ||
+               (gameData.gridState[6] == 0 && gameData.gridState[7] == 0 && gameData.gridState[8] == 0) ||
+               (gameData.gridState[0] == 0 && gameData.gridState[3] == 0 && gameData.gridState[6] == 0) ||
+               (gameData.gridState[1] == 0 && gameData.gridState[4] == 0 && gameData.gridState[7] == 0) ||
+               (gameData.gridState[2] == 0 && gameData.gridState[5] == 0 && gameData.gridState[8] == 0) ||
+               (gameData.gridState[0] == 0 && gameData.gridState[4] == 0 && gameData.gridState[8] == 0) ||
+               (gameData.gridState[2] == 0 && gameData.gridState[4] == 0 && gameData.gridState[6] == 0) 
+           )
         {
             if (gameData.playerShape == 0)
             {
-                gameData.gridState[index] = 0;
-                circles[index].gameObject.SetActive(true);
-                gameData.playerShape = 1;
+                gameIsFinished = true;
+                Debug.Log("game is finished!");
+                turnText.gameObject.SetActive(false);
+                winnerText.gameObject.SetActive(true);
+            }
+                        
+        }
+
+        if (
+               (gameData.gridState[0] == 1 && gameData.gridState[1] == 1 && gameData.gridState[2] == 1) ||
+               (gameData.gridState[3] == 1 && gameData.gridState[4] == 1 && gameData.gridState[5] == 1) ||
+               (gameData.gridState[6] == 1 && gameData.gridState[7] == 1 && gameData.gridState[8] == 1) ||
+               (gameData.gridState[0] == 1 && gameData.gridState[3] == 1 && gameData.gridState[6] == 1) ||
+               (gameData.gridState[1] == 1 && gameData.gridState[4] == 1 && gameData.gridState[7] == 1) ||
+               (gameData.gridState[2] == 1 && gameData.gridState[5] == 1 && gameData.gridState[8] == 1) ||
+               (gameData.gridState[0] == 1 && gameData.gridState[4] == 1 && gameData.gridState[8] == 1) ||
+               (gameData.gridState[2] == 1 && gameData.gridState[4] == 1 && gameData.gridState[6] == 1)
+           )
+        {
+            if (gameData.playerShape == 1)
+            {
+                gameIsFinished = true;
+                Debug.Log("game is finished!");
+                turnText.gameObject.SetActive(false);
+                winnerText.gameObject.SetActive(true);
             }
 
-            else if (gameData.playerShape == 1)
-            {
-                gameData.gridState[index] = 1;
-                crosses[index].gameObject.SetActive(true);
-                gameData.playerShape = 0;
-            }
         }
     }
 
+    public async void MakeMove(int index)
+    {
+        if (!gameIsFinished && gameData.playerTurn)
+        {
+            if (gameData.playerShape == 0 && gameData.gridState[index] == -1)
+            {
+                gameData.gridState[index] = 0;
+                circles[index].gameObject.SetActive(true);
+                gameData.playerTurn = false;
+
+                byte[] data = BitConverter.GetBytes(index);
+                await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 3, data, null);
+                turnText.gameObject.SetActive(false);
+            }
+
+            else if (gameData.playerShape == 1 && gameData.gridState[index] == -1)
+            {
+                gameData.gridState[index] = 1;
+                crosses[index].gameObject.SetActive(true);
+                gameData.playerTurn = false;
+
+                byte[] data = BitConverter.GetBytes(index);
+                await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 3, data, null);
+                turnText.gameObject.SetActive(false);
+            }
+
+            turnsPlayed++;
+            AnnounceWinner();
+        }
+    }
+
+    Coroutine c;
     private void StartSpin(float finalAngle)
     {
-        StartCoroutine(SpinRoutine(finalAngle));
+        if(c != null)
+        {
+            StopCoroutine(c);
+            c = null;
+        }
+
+        c = StartCoroutine(SpinRoutine(finalAngle));
     }
 
     private IEnumerator SpinRoutine(float finalAngle)
@@ -176,7 +288,7 @@ public class GameManager : MonoBehaviour
 
         while (elapsed < spinTime)
         {
-            float currentAngle = Mathf.Lerp(startAngle, finalAngle, elapsed / spinTime);
+            float currentAngle = Mathf.Lerp(startAngle, finalAngle , elapsed / spinTime);
             arrowHolder.rotation = Quaternion.Euler(0, 0, currentAngle);
 
             elapsed += Time.deltaTime;
@@ -190,15 +302,30 @@ public class GameManager : MonoBehaviour
         if (z > 120f && z < 300f)
         {
             Debug.Log("Player 1 starts!");
+
+            gameData.playerShape = 0;
+            gameData.playerTurn = true;
+
+            TurnAnnouncer();
         }
         else
         {
             Debug.Log("Player 2 starts!");
+
+            gameData.playerShape = 1;
+            gameData.playerTurn = false;
         }
 
         yield return new WaitForSeconds(1.3f);
 
         border.SetActive(false);
         spinner.SetActive(false);
+        gameBoard.SetActive(true);
+    }
+
+    [System.Serializable]
+    public class IntArrayWrapper
+    {
+        public int values;
     }
 }
