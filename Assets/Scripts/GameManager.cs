@@ -10,6 +10,7 @@ using System.Runtime.CompilerServices;
 using UnityEngine.XR;
 using static UnityEngine.Rendering.DebugUI;
 using Unity.VisualScripting;
+using Satori;
 
 public class GameManager : MonoBehaviour
 {
@@ -21,6 +22,9 @@ public class GameManager : MonoBehaviour
     public List<GameObject> circles;
     public List<GameObject> crosses;
 
+    //[SerializeField] private LineRenderer winLine;
+    //[SerializeField] private Transform[] cellPositions;
+
     public RectTransform arrowHolder;
 
     public GameObject matchmakingPanel;
@@ -29,19 +33,26 @@ public class GameManager : MonoBehaviour
     public GameObject spinner;
     public GameObject gameBoard;
 
+    public GameObject player1Timer;
+    public GameObject player2Timer;
+
+    public Image fillImage1;
+    public Image fillImage2;
+
     public TextMeshProUGUI player1Name;
     public TextMeshProUGUI player2Name;
     public TextMeshProUGUI turnText;
     public TextMeshProUGUI winnerText;
 
-    public TMP_InputField inputField;
+    public TMP_InputField  inputField;
 
+    public  float timerDuration = 10f;
     private float spinTime = 5.0f;
     private float clientFinalAngle;
     private float HostFinalAngle;
     private bool  isHost;
-    private bool gameIsFinished = false;
-    private int turnsPlayed = 0;
+    private bool  gameIsFinished = false;
+    private int   turnsPlayed = 0;
 
     private async void Start()
     {
@@ -110,18 +121,21 @@ public class GameManager : MonoBehaviour
     {
         switch (matchState.OpCode)
         {
+            //receive other player's name
             case 1:
 
                 player2Name.text = System.Text.Encoding.UTF8.GetString(matchState.State);
                 break;
-
+            
+            //receive spin data from host
             case 2:
 
                 clientFinalAngle = BitConverter.ToSingle(matchState.State, 0);
                 StartSpin(clientFinalAngle);
                 Debug.Log(clientFinalAngle);
                 break;
-
+            
+            //receive other player move
             case 3:
 
                 int receivedIndex = BitConverter.ToInt32(matchState.State, 0);
@@ -132,18 +146,33 @@ public class GameManager : MonoBehaviour
                     gameData.gridState[receivedIndex] = 0;
                     circles[receivedIndex].gameObject.SetActive(true);
 
-                    gameData.playerTurn = true;
-                    TurnAnnouncer();
+                    //gameData.playerTurn = true;
+                    //TurnAnnouncer();
                 }
                 else if (gameData.playerShape == 0)
                 {
                     gameData.gridState[receivedIndex] = 1;
                     crosses[receivedIndex].gameObject.SetActive(true);
 
-                    gameData.playerTurn = true;
-                    TurnAnnouncer();
+                    //gameData.playerTurn = true;
+                    //TurnAnnouncer();
                 }
-                AnnounceWinner();
+
+                gameData.playerTurn = true;
+                TurnAnnouncer();
+                StartTimer(gameData.playerShape);
+
+                break;
+
+            //receive endgame notice
+            case 4:
+                gameIsFinished = true;
+                turnText.gameObject.SetActive(false);
+                Debug.Log("game is finished!");
+
+                player1Timer.SetActive(false);
+                player2Timer.SetActive(false);
+
                 break;
         }
     }
@@ -186,55 +215,60 @@ public class GameManager : MonoBehaviour
         player2Name.gameObject.SetActive(true);    
     }
 
-    private void AnnounceWinner()
+    private int GetWinningCombo(int playerShape)
+    {
+        for (int i = 0; i < gameData.winningCombinations.GetLength(0); i++)
+        {
+            int a = gameData.winningCombinations[i, 0];
+            int b = gameData.winningCombinations[i, 1];
+            int c = gameData.winningCombinations[i, 2];
+
+            if (gameData.gridState[a] == playerShape &&
+                gameData.gridState[b] == playerShape &&
+                gameData.gridState[c] == playerShape)
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /*private void ShowWinningLine(int comboIndex)
+    {
+        int a = gameData.winningCombinations[comboIndex, 0];
+        int c = gameData.winningCombinations[comboIndex, 2];
+
+        winLine.positionCount = 2;
+        winLine.SetPosition(0, cellPositions[a].position);
+        winLine.SetPosition(1, cellPositions[c].position);
+        winLine.enabled = true;
+    }*/
+
+    private async void AnnounceWinner()
     {
         if (turnsPlayed == 8)
         {
             gameIsFinished = true;
+            turnText.gameObject.SetActive(false);
             Debug.Log("game is finished!");
 
+            player1Timer.SetActive(false);
+            player2Timer.SetActive(false);
+        }
+
+        int winningCombo = GetWinningCombo(gameData.playerShape);
+        if (winningCombo != -1)
+        {
+            gameIsFinished = true;
             turnText.gameObject.SetActive(false);
-        }
-        if (
-               (gameData.gridState[0] == 0 && gameData.gridState[1] == 0 && gameData.gridState[2] == 0) ||
-               (gameData.gridState[3] == 0 && gameData.gridState[4] == 0 && gameData.gridState[5] == 0) ||
-               (gameData.gridState[6] == 0 && gameData.gridState[7] == 0 && gameData.gridState[8] == 0) ||
-               (gameData.gridState[0] == 0 && gameData.gridState[3] == 0 && gameData.gridState[6] == 0) ||
-               (gameData.gridState[1] == 0 && gameData.gridState[4] == 0 && gameData.gridState[7] == 0) ||
-               (gameData.gridState[2] == 0 && gameData.gridState[5] == 0 && gameData.gridState[8] == 0) ||
-               (gameData.gridState[0] == 0 && gameData.gridState[4] == 0 && gameData.gridState[8] == 0) ||
-               (gameData.gridState[2] == 0 && gameData.gridState[4] == 0 && gameData.gridState[6] == 0) 
-           )
-        {
-            if (gameData.playerShape == 0)
-            {
-                gameIsFinished = true;
-                Debug.Log("game is finished!");
-                turnText.gameObject.SetActive(false);
-                winnerText.gameObject.SetActive(true);
-            }
-                        
-        }
+            winnerText.gameObject.SetActive(true);
+            //ShowWinningLine(winningCombo);
+            Debug.Log("game is finished!");
 
-        if (
-               (gameData.gridState[0] == 1 && gameData.gridState[1] == 1 && gameData.gridState[2] == 1) ||
-               (gameData.gridState[3] == 1 && gameData.gridState[4] == 1 && gameData.gridState[5] == 1) ||
-               (gameData.gridState[6] == 1 && gameData.gridState[7] == 1 && gameData.gridState[8] == 1) ||
-               (gameData.gridState[0] == 1 && gameData.gridState[3] == 1 && gameData.gridState[6] == 1) ||
-               (gameData.gridState[1] == 1 && gameData.gridState[4] == 1 && gameData.gridState[7] == 1) ||
-               (gameData.gridState[2] == 1 && gameData.gridState[5] == 1 && gameData.gridState[8] == 1) ||
-               (gameData.gridState[0] == 1 && gameData.gridState[4] == 1 && gameData.gridState[8] == 1) ||
-               (gameData.gridState[2] == 1 && gameData.gridState[4] == 1 && gameData.gridState[6] == 1)
-           )
-        {
-            if (gameData.playerShape == 1)
-            {
-                gameIsFinished = true;
-                Debug.Log("game is finished!");
-                turnText.gameObject.SetActive(false);
-                winnerText.gameObject.SetActive(true);
-            }
+            await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 4, "", null);
 
+            player1Timer.SetActive(false);
+            player2Timer.SetActive(false);
         }
     }
 
@@ -246,26 +280,137 @@ public class GameManager : MonoBehaviour
             {
                 gameData.gridState[index] = 0;
                 circles[index].gameObject.SetActive(true);
-                gameData.playerTurn = false;
+                //gameData.playerTurn = false;
 
-                byte[] data = BitConverter.GetBytes(index);
-                await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 3, data, null);
-                turnText.gameObject.SetActive(false);
+                //byte[] data = BitConverter.GetBytes(index);
+                //await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 3, data, null);
+                //turnText.gameObject.SetActive(false);
             }
 
             else if (gameData.playerShape == 1 && gameData.gridState[index] == -1)
             {
                 gameData.gridState[index] = 1;
                 crosses[index].gameObject.SetActive(true);
-                gameData.playerTurn = false;
+                //gameData.playerTurn = false;
 
-                byte[] data = BitConverter.GetBytes(index);
-                await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 3, data, null);
-                turnText.gameObject.SetActive(false);
+                //byte[] data = BitConverter.GetBytes(index);
+                //await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 3, data, null);
+                //turnText.gameObject.SetActive(false);
             }
+
+            gameData.playerTurn = false;
+            byte[] data = BitConverter.GetBytes(index);
+            await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 3, data, null);
+            turnText.gameObject.SetActive(false);
 
             turnsPlayed++;
             AnnounceWinner();
+            StartTimer(gameData.playerShape);
+        }
+    }
+
+    Coroutine d;
+    private void StartTimer(int playerShape)
+    {
+        if (d != null)
+        {
+            StopCoroutine(d);
+            d = null;
+        }
+
+        if (!gameIsFinished)
+        {
+            d = StartCoroutine(TimerRoutine(playerShape));
+        }
+    }
+
+    private IEnumerator TimerRoutine(int playershape)
+    {
+        float elapsed = 0f;
+
+        if (gameData.playerTurn)
+        {
+            if (playershape == 0)
+            {
+                player1Timer.SetActive(true);
+            }
+            else if (playershape == 1)
+            {
+                player2Timer.SetActive(true);
+            }
+        }
+        else if (!gameData.playerTurn)
+        {
+            if (playershape == 0)
+            {
+                player2Timer.SetActive(true);
+            }
+            else if (playershape == 1)
+            {
+                player1Timer.SetActive(true);
+            }
+        }
+        
+        while (elapsed < timerDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(1f - (elapsed / timerDuration));
+
+            if (gameData.playerTurn)
+            {
+                if (playershape == 0)
+                {
+                    fillImage1.fillAmount = t;
+                }
+                else if (playershape == 1)
+                {
+                    fillImage2.fillAmount = t;
+                }
+            }
+            else if (!gameData.playerTurn)
+            {
+                if (playershape == 0)
+                {
+                    fillImage2.fillAmount = t;
+                }
+                else if (playershape == 1)
+                {
+                    fillImage1.fillAmount = t;
+                }
+            }
+
+            yield return null;
+        }
+
+        if (gameData.playerTurn)
+        {
+            if (playershape == 0 && fillImage1 != null)
+            {
+                fillImage1.fillAmount = 0f;
+                player1Timer.SetActive(false);
+                fillImage1.fillAmount = 1f;
+            }
+            else if (playershape == 1 && fillImage2 != null)
+            {
+                fillImage2.fillAmount = 0f;
+                player2Timer.SetActive(false);
+                fillImage2.fillAmount = 1f;
+            }
+        }
+        else if (!gameData.playerTurn)
+        {
+            if (playershape == 0 && fillImage2 != null)
+            {
+                fillImage2.fillAmount = 0f;
+                player2Timer.SetActive(false);
+                fillImage2.fillAmount = 1f;
+            }
+            else if (playershape == 1 && fillImage1 != null)
+            {
+                fillImage1.fillAmount = 0f;
+                player1Timer.SetActive(false);
+                fillImage1.fillAmount = 1f;
+            }
         }
     }
 
@@ -277,7 +422,6 @@ public class GameManager : MonoBehaviour
             StopCoroutine(c);
             c = null;
         }
-
         c = StartCoroutine(SpinRoutine(finalAngle));
     }
 
