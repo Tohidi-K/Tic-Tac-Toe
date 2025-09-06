@@ -6,11 +6,6 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 using System.Threading.Tasks;
-using System.Runtime.CompilerServices;
-using UnityEngine.XR;
-using static UnityEngine.Rendering.DebugUI;
-using Unity.VisualScripting;
-using Satori;
 
 public class GameManager : MonoBehaviour
 {
@@ -21,6 +16,7 @@ public class GameManager : MonoBehaviour
 
     public List<GameObject> circles;
     public List<GameObject> crosses;
+    public List<Image>     winLines;
 
     //[SerializeField] private LineRenderer winLine;
     //[SerializeField] private Transform[] cellPositions;
@@ -32,13 +28,14 @@ public class GameManager : MonoBehaviour
     public GameObject border;
     public GameObject spinner;
     public GameObject gameBoard;
+    public GameObject winLinesParent;
 
     public GameObject player1Timer;
     public GameObject player2Timer;
 
     public Image fillImage1;
     public Image fillImage2;
-
+    
     public TextMeshProUGUI player1Name;
     public TextMeshProUGUI player2Name;
     public TextMeshProUGUI turnText;
@@ -47,9 +44,10 @@ public class GameManager : MonoBehaviour
     public TMP_InputField  inputField;
 
     public  float timerDuration = 10f;
+    public  float drawDuration = 3f;
     private float spinTime = 5.0f;
-    private float clientFinalAngle;
-    private float HostFinalAngle;
+    private int   clientFinalAngle;
+    private int   HostFinalAngle;
     private bool  isHost;
     private bool  gameIsFinished = false;
     private int   turnsPlayed = 0;
@@ -130,9 +128,9 @@ public class GameManager : MonoBehaviour
             //receive spin data from host
             case 2:
 
-                clientFinalAngle = BitConverter.ToSingle(matchState.State, 0);
+                clientFinalAngle = BitConverter.ToInt32(matchState.State, 0);
+                Debug.Log("client number is :" + clientFinalAngle);
                 StartSpin(clientFinalAngle);
-                Debug.Log(clientFinalAngle);
                 break;
             
             //receive other player move
@@ -145,22 +143,19 @@ public class GameManager : MonoBehaviour
                 {
                     gameData.gridState[receivedIndex] = 0;
                     circles[receivedIndex].gameObject.SetActive(true);
-
-                    //gameData.playerTurn = true;
-                    //TurnAnnouncer();
                 }
                 else if (gameData.playerShape == 0)
                 {
                     gameData.gridState[receivedIndex] = 1;
                     crosses[receivedIndex].gameObject.SetActive(true);
-
-                    //gameData.playerTurn = true;
-                    //TurnAnnouncer();
                 }
 
+                player1Timer.SetActive(false);
+                player2Timer.SetActive(false);
+
+                StartTimer(gameData.playerTurn);
                 gameData.playerTurn = true;
                 TurnAnnouncer();
-                StartTimer(gameData.playerShape);
 
                 break;
 
@@ -168,10 +163,20 @@ public class GameManager : MonoBehaviour
             case 4:
                 gameIsFinished = true;
                 turnText.gameObject.SetActive(false);
+                StartDrawWinningline();
                 Debug.Log("game is finished!");
 
                 player1Timer.SetActive(false);
                 player2Timer.SetActive(false);
+
+                break;
+
+            //receive switch game signal
+            case 5:
+
+                StartTimer(gameData.playerTurn);
+                gameData.playerTurn = true;
+                TurnAnnouncer();
 
                 break;
         }
@@ -194,17 +199,20 @@ public class GameManager : MonoBehaviour
 
         if (isHost)
         {
-            float possibleAngles = UnityEngine.Random.Range(0f, 360f);
-            int extraSpins = UnityEngine.Random.Range(3, 6);
-            clientFinalAngle = possibleAngles + extraSpins * 360f;
+            //float possibleAngles = UnityEngine.Random.Range(0f, 360f);
+            //int extraSpins = UnityEngine.Random.Range(3, 6);
+            int choosedAngle = gameData.stopAngles[UnityEngine.Random.Range(0, gameData.stopAngles.Length -1)];
+            Debug.Log("choosed angle is : " + choosedAngle);
+            clientFinalAngle = choosedAngle + 6 * 360;
 
             Debug.Log("client number has been generated which is : " + clientFinalAngle);
-            Debug.Log(clientFinalAngle);
 
             var bytes = BitConverter.GetBytes(clientFinalAngle);
             await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 2, bytes, null);
 
+            Debug.Log("choosed angle is : " + choosedAngle);
             HostFinalAngle = clientFinalAngle + 180;
+            Debug.Log("host spin angle is : " + HostFinalAngle);
             StartSpin(HostFinalAngle);
         }
     } 
@@ -223,9 +231,15 @@ public class GameManager : MonoBehaviour
             int b = gameData.winningCombinations[i, 1];
             int c = gameData.winningCombinations[i, 2];
 
-            if (gameData.gridState[a] == playerShape &&
-                gameData.gridState[b] == playerShape &&
-                gameData.gridState[c] == playerShape)
+            if (gameData.gridState[a] == 0 &&
+                gameData.gridState[b] == 0 &&
+                gameData.gridState[c] == 0)
+            {
+                return i;
+            }
+            else if (gameData.gridState[a] == 1 &&
+                     gameData.gridState[b] == 1 &&
+                     gameData.gridState[c] == 1)
             {
                 return i;
             }
@@ -233,16 +247,28 @@ public class GameManager : MonoBehaviour
         return -1;
     }
 
-    /*private void ShowWinningLine(int comboIndex)
+    private void StartDrawWinningline()
     {
-        int a = gameData.winningCombinations[comboIndex, 0];
-        int c = gameData.winningCombinations[comboIndex, 2];
+        StartCoroutine(DrawRoutine());
+    }
 
-        winLine.positionCount = 2;
-        winLine.SetPosition(0, cellPositions[a].position);
-        winLine.SetPosition(1, cellPositions[c].position);
-        winLine.enabled = true;
-    }*/
+    private IEnumerator DrawRoutine()
+    {
+        int winningCombo = GetWinningCombo(gameData.playerShape);
+        winLinesParent.SetActive(true);
+        winLines[winningCombo].gameObject.SetActive(true);
+
+        float elapsed = 0f;
+
+        while (elapsed < drawDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / drawDuration);
+            winLines[winningCombo].fillAmount = t;
+
+            yield return null;
+        }
+    }
 
     private async void AnnounceWinner()
     {
@@ -263,6 +289,7 @@ public class GameManager : MonoBehaviour
             turnText.gameObject.SetActive(false);
             winnerText.gameObject.SetActive(true);
             //ShowWinningLine(winningCombo);
+            StartDrawWinningline();
             Debug.Log("game is finished!");
 
             await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 4, "", null);
@@ -280,37 +307,39 @@ public class GameManager : MonoBehaviour
             {
                 gameData.gridState[index] = 0;
                 circles[index].gameObject.SetActive(true);
-                //gameData.playerTurn = false;
-
-                //byte[] data = BitConverter.GetBytes(index);
-                //await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 3, data, null);
-                //turnText.gameObject.SetActive(false);
             }
-
             else if (gameData.playerShape == 1 && gameData.gridState[index] == -1)
             {
                 gameData.gridState[index] = 1;
                 crosses[index].gameObject.SetActive(true);
-                //gameData.playerTurn = false;
-
-                //byte[] data = BitConverter.GetBytes(index);
-                //await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 3, data, null);
-                //turnText.gameObject.SetActive(false);
             }
 
-            gameData.playerTurn = false;
             byte[] data = BitConverter.GetBytes(index);
             await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 3, data, null);
+
+            player1Timer.SetActive(false);
+            player2Timer.SetActive(false);
+
+            StartTimer(gameData.playerTurn);
+            gameData.playerTurn = false;
             turnText.gameObject.SetActive(false);
 
             turnsPlayed++;
             AnnounceWinner();
-            StartTimer(gameData.playerShape);
         }
     }
 
+    private async void SwitchTurn()
+    {
+        StartTimer(gameData.playerTurn);
+        gameData.playerTurn = false;
+        turnText.gameObject.SetActive(false);
+
+        await NakamaConnection.Socket.SendMatchStateAsync(NakamaConnection.matchId, 5, "", null);
+    }
+
     Coroutine d;
-    private void StartTimer(int playerShape)
+    private void StartTimer(bool playerTurn)
     {
         if (d != null)
         {
@@ -320,35 +349,21 @@ public class GameManager : MonoBehaviour
 
         if (!gameIsFinished)
         {
-            d = StartCoroutine(TimerRoutine(playerShape));
+            d = StartCoroutine(TimerRoutine(playerTurn));
         }
     }
 
-    private IEnumerator TimerRoutine(int playershape)
+    private IEnumerator TimerRoutine(bool playerTurn)
     {
         float elapsed = 0f;
 
-        if (gameData.playerTurn)
+        if (playerTurn)
         {
-            if (playershape == 0)
-            {
-                player1Timer.SetActive(true);
-            }
-            else if (playershape == 1)
-            {
-                player2Timer.SetActive(true);
-            }
+            player2Timer.SetActive(true);
         }
-        else if (!gameData.playerTurn)
+        else if (!playerTurn)
         {
-            if (playershape == 0)
-            {
-                player2Timer.SetActive(true);
-            }
-            else if (playershape == 1)
-            {
-                player1Timer.SetActive(true);
-            }
+            player1Timer.SetActive(true);
         }
         
         while (elapsed < timerDuration)
@@ -356,66 +371,35 @@ public class GameManager : MonoBehaviour
             elapsed += Time.deltaTime;
             float t = Mathf.Clamp01(1f - (elapsed / timerDuration));
 
-            if (gameData.playerTurn)
+            if (playerTurn)
             {
-                if (playershape == 0)
-                {
-                    fillImage1.fillAmount = t;
-                }
-                else if (playershape == 1)
-                {
-                    fillImage2.fillAmount = t;
-                }
+                fillImage2.fillAmount = t;
             }
-            else if (!gameData.playerTurn)
+            else if (!playerTurn)
             {
-                if (playershape == 0)
-                {
-                    fillImage2.fillAmount = t;
-                }
-                else if (playershape == 1)
-                {
-                    fillImage1.fillAmount = t;
-                }
+                fillImage1.fillAmount = t;
             }
 
             yield return null;
         }
 
-        if (gameData.playerTurn)
+        if (playerTurn)
         {
-            if (playershape == 0 && fillImage1 != null)
-            {
-                fillImage1.fillAmount = 0f;
-                player1Timer.SetActive(false);
-                fillImage1.fillAmount = 1f;
-            }
-            else if (playershape == 1 && fillImage2 != null)
-            {
-                fillImage2.fillAmount = 0f;
-                player2Timer.SetActive(false);
-                fillImage2.fillAmount = 1f;
-            }
+            fillImage2.fillAmount = 0f;
+            player2Timer.SetActive(false);
+            fillImage2.fillAmount = 1f;
         }
-        else if (!gameData.playerTurn)
+        else if (!playerTurn)
         {
-            if (playershape == 0 && fillImage2 != null)
-            {
-                fillImage2.fillAmount = 0f;
-                player2Timer.SetActive(false);
-                fillImage2.fillAmount = 1f;
-            }
-            else if (playershape == 1 && fillImage1 != null)
-            {
-                fillImage1.fillAmount = 0f;
-                player1Timer.SetActive(false);
-                fillImage1.fillAmount = 1f;
-            }
+            fillImage1.fillAmount = 0f;
+            player1Timer.SetActive(false);
+            fillImage1.fillAmount = 1f;
         }
+        //SwitchTurn();
     }
 
     Coroutine c;
-    private void StartSpin(float finalAngle)
+    private void StartSpin(int finalAngle)
     {
         if(c != null)
         {
@@ -425,7 +409,7 @@ public class GameManager : MonoBehaviour
         c = StartCoroutine(SpinRoutine(finalAngle));
     }
 
-    private IEnumerator SpinRoutine(float finalAngle)
+    private IEnumerator SpinRoutine(int finalAngle)
     {
         float elapsed = 0f;
         float startAngle = arrowHolder.eulerAngles.z;

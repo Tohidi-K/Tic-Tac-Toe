@@ -27,4 +27,9 @@ public class GameData
         {0, 4, 8}, // Diagonal 1
         {2, 4, 6}  // Diagonal 2
     };
+
+    public int[] stopAngles = new int[]
+    {
+        10, 30, 50, 70, 90, 110, 130, 150, 170, 190, 210, 230, 250, 270, 290, 310, 330, 350
+    };
 }
